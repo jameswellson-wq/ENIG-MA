@@ -1,9 +1,9 @@
 # ============================================================================
-# 保存位置：仓库根目录下的 .github/workflows/build.yml
+# 保存位置：仓库根目录下的  .github/workflows/build.yml
 #
 # 作用：每次 push / Pull Request 时，在 GitHub 托管的 Windows 机器上自动编译
-#       EnigmaHardwareID（MFC + x86 内联汇编 + vcpkg 管理的 spdlog），
-#       并把编译出的 exe 作为“构建产物”上传，可在 Actions 页面下载。
+#        EnigmaHardwareID（MFC + x86 内联汇编 + vcpkg 管理的 spdlog），
+#        并把编译出的 exe 作为"构建产物"上传，可在 Actions 页面下载。
 #
 # 这份配置是根据源码定制的，几个关键决定都来自源码：
 #   1. 含 _asm 内联汇编（CPUID）        → 只能编译 Win32(x86)，不能是 x64
@@ -12,14 +12,14 @@
 #   4. 依赖由 vcpkg.json（清单模式）声明  → 需要 /p:VcpkgEnableManifest=true
 #   5. 源码是无 BOM 的 UTF-8 且含中文；fmt 在 MSVC 下强制要求 /utf-8
 # ============================================================================
-name: Build EnigmaHardwareID 
+name: Build EnigmaHardwareID
 
 on:
   push:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:            # 允许在 Actions 页面手动点击 “Run workflow”
+  workflow_dispatch:            # 允许在 Actions 页面手动点击 "Run workflow"
 
 permissions:
   contents: read                # 只需要读取仓库，遵循最小权限原则
@@ -59,24 +59,26 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: 配置 MSBuild（把 msbuild.exe 加入 PATH）
-        uses: microsoft/setup-msbuild@v3
+        uses: microsoft/setup-msbuild@v2
 
       # ── 依赖：vcpkg（spdlog） ────────────────────────────────────────────
       - name: 读取 vcpkg.json 中的 builtin-baseline
         id: baseline
         run: |
-          $manifest = Join-Path$env:PROJECT_ROOT 'EnigmaHardwareID/vcpkg.json'
-          $sha = (Get-Content -Path$manifest -Raw | ConvertFrom-Json).'builtin-baseline'
+          # FIX 1: Join-Path 后补空格（原文 Join-Path$env:PROJECT_ROOT 无空格）
+          $manifest = Join-Path $env:PROJECT_ROOT 'EnigmaHardwareID/vcpkg.json'
+          # FIX 2: Get-Content 后补空格（原文 Get-Content$manifest 无空格）
+          $sha = (Get-Content $manifest -Raw | ConvertFrom-Json).'builtin-baseline'
           if ($sha -notmatch '^[0-9a-f]{40}$') {
             throw "vcpkg.json 里没有有效的 builtin-baseline（需要 40 位提交哈希），当前值：'$sha'"
           }
           "sha=$sha" >> $env:GITHUB_OUTPUT
 
       - name: 恢复 vcpkg 二进制缓存（第二次起不再重新编译 spdlog/fmt）
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: vcpkg-${{ runner.os }}-${{ matrix.configuration }}-${{ steps.baseline.outputs.sha }}-${{ hashFiles('**/EnigmaHardwareID/vcpkg.json') }}
@@ -86,7 +88,8 @@ jobs:
       - name: 获取并引导 vcpkg（固定在 baseline 同一提交）
         run: |
           $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference =$true   # 任何外部命令返回非 0 即失败
+          # FIX 3: = 与 $true 之间补空格（原文 =$true 紧贴）
+          $PSNativeCommandUseErrorActionPreference = $true   # 任何外部命令返回非 0 即失败
           $sha = '${{ steps.baseline.outputs.sha }}'
 
           # vcpkg 要求二进制缓存目录必须已存在
@@ -96,7 +99,8 @@ jobs:
           git init $env:VCPKG_DIR
           git -C $env:VCPKG_DIR remote add origin https://github.com/microsoft/vcpkg.git
           try {
-            git -C $env:VCPKG_DIR fetch --depth 1 origin$sha
+            # FIX 4: origin 后补空格（原文 origin$sha 无空格，git 会把整串当远端名）
+            git -C $env:VCPKG_DIR fetch --depth 1 origin $sha
           } catch {
             throw "在 microsoft/vcpkg 中找不到提交 $sha。请把 vcpkg.json 的 builtin-baseline 改成真实存在的 vcpkg 提交。"
           }
@@ -129,7 +133,7 @@ jobs:
       # x86-windows 是动态库三元组：bin 目录里除了 exe，还会有 vcpkg 复制过来的 DLL，
       # 所以上传整个目录。Debug 版依赖调试版运行库，只适合开发机排查问题。
       - name: 上传编译产物
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: EnigmaHardwareID-${{ matrix.configuration }}-Win32
           path: ${{ env.PROJECT_ROOT }}/bin/${{ matrix.configuration }}/
@@ -138,7 +142,7 @@ jobs:
 
       - name: 上传日志（仅失败时）
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: logs-${{ matrix.configuration }}
           path: |
