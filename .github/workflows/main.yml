@@ -68,7 +68,7 @@ jobs:
       - name: 读取 vcpkg.json 中的 builtin-baseline
         id: baseline
         run: |
-          $manifest = Join-Path$env:PROJECT_ROOT 'EnigmaHardwareID/vcpkg.json'
+         $manifest = Join-Path $env:PROJECT_ROOT 'EnigmaHardwareID/vcpkg.json'
           $sha = (Get-Content$manifest -Raw | ConvertFrom-Json).'builtin-baseline'
           if ($sha -notmatch '^[0-9a-f]{40}$') {
             throw "vcpkg.json 里没有有效的 builtin-baseline（需要 40 位提交哈希），当前值：'$sha'"
