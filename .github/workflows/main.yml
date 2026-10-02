@@ -1,9 +1,9 @@
 # ============================================================================
-# 保存位置：仓库根目录下的  .github/workflows/build.yml
+# 保存位置：仓库根目录下的 .github/workflows/build.yml
 #
 # 作用：每次 push / Pull Request 时，在 GitHub 托管的 Windows 机器上自动编译
-#        EnigmaHardwareID（MFC + x86 内联汇编 + vcpkg 管理的 spdlog），
-#        并把编译出的 exe 作为“构建产物”上传，可在 Actions 页面下载。
+#       EnigmaHardwareID（MFC + x86 内联汇编 + vcpkg 管理的 spdlog），
+#       并把编译出的 exe 作为“构建产物”上传，可在 Actions 页面下载。
 #
 # 这份配置是根据源码定制的，几个关键决定都来自源码：
 #   1. 含 _asm 内联汇编（CPUID）        → 只能编译 Win32(x86)，不能是 x64
@@ -68,8 +68,8 @@ jobs:
       - name: 读取 vcpkg.json 中的 builtin-baseline
         id: baseline
         run: |
-         $manifest = Join-Path $env:PROJECT_ROOT 'EnigmaHardwareID/vcpkg.json'
-          $sha = (Get-Content$manifest -Raw | ConvertFrom-Json).'builtin-baseline'
+          $manifest = Join-Path$env:PROJECT_ROOT 'EnigmaHardwareID/vcpkg.json'
+          $sha = (Get-Content -Path$manifest -Raw | ConvertFrom-Json).'builtin-baseline'
           if ($sha -notmatch '^[0-9a-f]{40}$') {
             throw "vcpkg.json 里没有有效的 builtin-baseline（需要 40 位提交哈希），当前值：'$sha'"
           }
