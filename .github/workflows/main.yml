@@ -1,1 +1,147 @@
+# ============================================================================
+# 保存位置：仓库根目录下的  .github/workflows/build.yml
+#
+# 作用：每次 push / Pull Request 时，在 GitHub 托管的 Windows 机器上自动编译
+#       EnigmaHardwareID（MFC + x86 内联汇编 + vcpkg 管理的 spdlog），
+#       并把编译出的 exe 作为“构建产物”上传，可在 Actions 页面下载。
+#
+# 这份配置是根据源码定制的，几个关键决定都来自源码：
+#   1. 含 _asm 内联汇编（CPUID）        → 只能编译 Win32(x86)，不能是 x64
+#   2. .vcxproj 写死 PlatformToolset=v141 → runner 没有 v141，命令行覆盖成 v143
+#   3. 输出目录依赖 $(SolutionDir)        → 必须编译 .sln，不能直接编译 .vcxproj
+#   4. 依赖由 vcpkg.json（清单模式）声明  → 需要 /p:VcpkgEnableManifest=true
+#   5. 源码是无 BOM 的 UTF-8 且含中文；fmt 在 MSVC 下强制要求 /utf-8
+# ============================================================================
+name: Build EnigmaHardwareID
 
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:            # 允许在 Actions 页面手动点击 “Run workflow”
+
+permissions:
+  contents: read                # 只需要读取仓库，遵循最小权限原则
+
+concurrency:                    # 同一分支连续 push 时，取消还在排队/运行的旧任务
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # EnigmaHardwareID.sln 所在目录（相对仓库根目录）：
+  #   仓库根目录里直接就是 EnigmaHardwareID.sln            → "."
+  #   整个 EnigmaHardwareID-VS2017 文件夹是仓库的子目录   → "EnigmaHardwareID-VS2017"
+  PROJECT_ROOT: "."
+  SOLUTION: EnigmaHardwareID.sln
+
+jobs:
+  build:
+    name: ${{ matrix.configuration }} | Win32
+    # 固定 windows-2022：自带 VS2022（v143 工具集）和 MFC/ATL。
+    # 注意它没有 v141(VS2017) 工具集，所以下面要覆盖 PlatformToolset。
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false          # Debug 失败时不要取消 Release
+      matrix:
+        configuration: [Debug, Release]
+
+    defaults:
+      run:
+        shell: pwsh
+
+    env:
+      VCPKG_DIR: ${{ github.workspace }}\vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-binary-cache
+      VCPKG_DISABLE_METRICS: "1"
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 配置 MSBuild（把 msbuild.exe 加入 PATH）
+        uses: microsoft/setup-msbuild@v3
+
+      # ── 依赖：vcpkg（spdlog） ────────────────────────────────────────────
+      - name: 读取 vcpkg.json 中的 builtin-baseline
+        id: baseline
+        run: |
+          $manifest = Join-Path $env:PROJECT_ROOT 'EnigmaHardwareID/vcpkg.json'
+          $sha = (Get-Content $manifest -Raw | ConvertFrom-Json).'builtin-baseline'
+          if ($sha -notmatch '^[0-9a-f]{40}$') {
+            throw "vcpkg.json 里没有有效的 builtin-baseline（需要 40 位提交哈希），当前值：'$sha'"
+          }
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+
+      - name: 恢复 vcpkg 二进制缓存（第二次起不再重新编译 spdlog/fmt）
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ matrix.configuration }}-${{ steps.baseline.outputs.sha }}-${{ hashFiles('**/EnigmaHardwareID/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ matrix.configuration }}-${{ steps.baseline.outputs.sha }}-
+
+      - name: 获取并引导 vcpkg（固定在 baseline 同一提交）
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true   # 任何外部命令返回非 0 即失败
+          $sha = '${{ steps.baseline.outputs.sha }}'
+
+          # vcpkg 要求二进制缓存目录必须已存在
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+          # 只拉取 baseline 这一个提交（浅克隆，快）
+          git init $env:VCPKG_DIR
+          git -C $env:VCPKG_DIR remote add origin https://github.com/microsoft/vcpkg.git
+          try {
+            git -C $env:VCPKG_DIR fetch --depth 1 origin $sha
+          } catch {
+            throw "在 microsoft/vcpkg 中找不到提交 $sha。请把 vcpkg.json 的 builtin-baseline 改成真实存在的 vcpkg 提交。"
+          }
+          git -C $env:VCPKG_DIR checkout FETCH_HEAD
+
+          & "$env:VCPKG_DIR\bootstrap-vcpkg.bat" -disableMetrics
+          # 让 MSBuild 能找到 vcpkg（runner 默认以管理员身份运行，可直接执行）
+          & "$env:VCPKG_DIR\vcpkg.exe" integrate install
+
+      # ── 编译 ─────────────────────────────────────────────────────────────
+      - name: 编译（${{ matrix.configuration }} | Win32）
+        working-directory: ${{ env.PROJECT_ROOT }}
+        env:
+          # cl.exe 会自动读取环境变量 CL，等价于给每个 .cpp 追加 /utf-8
+          CL: /utf-8
+        run: |
+          msbuild $env:SOLUTION `
+            /nologo /m /verbosity:minimal `
+            /p:Configuration=${{ matrix.configuration }} `
+            /p:Platform=Win32 `
+            /p:PlatformToolset=v143 `
+            /p:VcpkgEnableManifest=true `
+            "/flp:logfile=msbuild-${{ matrix.configuration }}.log;verbosity=normal"
+
+      - name: 查看输出文件
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: Get-ChildItem "bin/${{ matrix.configuration }}" | Format-Table Name, Length -AutoSize
+
+      # ── 产物 ─────────────────────────────────────────────────────────────
+      # x86-windows 是动态库三元组：bin 目录里除了 exe，还会有 vcpkg 复制过来的 DLL，
+      # 所以上传整个目录。Debug 版依赖调试版运行库，只适合开发机排查问题。
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: EnigmaHardwareID-${{ matrix.configuration }}-Win32
+          path: ${{ env.PROJECT_ROOT }}/bin/${{ matrix.configuration }}/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 上传日志（仅失败时）
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-${{ matrix.configuration }}
+          path: |
+            ${{ env.PROJECT_ROOT }}/msbuild-${{ matrix.configuration }}.log
+            ${{ env.VCPKG_DIR }}/buildtrees/**/*.log
+          if-no-files-found: ignore
