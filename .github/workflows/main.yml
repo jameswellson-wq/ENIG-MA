@@ -2,8 +2,8 @@
 # 保存位置：仓库根目录下的  .github/workflows/build.yml
 #
 # 作用：每次 push / Pull Request 时，在 GitHub 托管的 Windows 机器上自动编译
-#       EnigmaHardwareID（MFC + x86 内联汇编 + vcpkg 管理的 spdlog），
-#       并把编译出的 exe 作为“构建产物”上传，可在 Actions 页面下载。
+#        EnigmaHardwareID（MFC + x86 内联汇编 + vcpkg 管理的 spdlog），
+#        并把编译出的 exe 作为“构建产物”上传，可在 Actions 页面下载。
 #
 # 这份配置是根据源码定制的，几个关键决定都来自源码：
 #   1. 含 _asm 内联汇编（CPUID）        → 只能编译 Win32(x86)，不能是 x64
@@ -30,9 +30,9 @@ concurrency:                    # 同一分支连续 push 时，取消还在排�
 
 env:
   # EnigmaHardwareID.sln 所在目录（相对仓库根目录）：
-  #   仓库根目录里直接就是 EnigmaHardwareID.sln            → "."
-  #   整个 EnigmaHardwareID-VS2017 文件夹是仓库的子目录   → "EnigmaHardwareID-VS2017"
-  PROJECT_ROOT: "."
+  #    仓库根目录里直接就是 EnigmaHardwareID.sln            → "."
+  #    整个 EnigmaHardwareID-VS2017 文件夹是仓库的子目录   → "EnigmaHardwareID-VS2017"
+  PROJECT_ROOT: "EnigmaHardwareID-VS2017"
   SOLUTION: EnigmaHardwareID.sln
 
 jobs:
@@ -68,8 +68,8 @@ jobs:
       - name: 读取 vcpkg.json 中的 builtin-baseline
         id: baseline
         run: |
-          $manifest = Join-Path $env:PROJECT_ROOT 'EnigmaHardwareID/vcpkg.json'
-          $sha = (Get-Content $manifest -Raw | ConvertFrom-Json).'builtin-baseline'
+          $manifest = Join-Path$env:PROJECT_ROOT 'EnigmaHardwareID/vcpkg.json'
+          $sha = (Get-Content$manifest -Raw | ConvertFrom-Json).'builtin-baseline'
           if ($sha -notmatch '^[0-9a-f]{40}$') {
             throw "vcpkg.json 里没有有效的 builtin-baseline（需要 40 位提交哈希），当前值：'$sha'"
           }
@@ -86,7 +86,7 @@ jobs:
       - name: 获取并引导 vcpkg（固定在 baseline 同一提交）
         run: |
           $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true   # 任何外部命令返回非 0 即失败
+          $PSNativeCommandUseErrorActionPreference =$true   # 任何外部命令返回非 0 即失败
           $sha = '${{ steps.baseline.outputs.sha }}'
 
           # vcpkg 要求二进制缓存目录必须已存在
@@ -96,7 +96,7 @@ jobs:
           git init $env:VCPKG_DIR
           git -C $env:VCPKG_DIR remote add origin https://github.com/microsoft/vcpkg.git
           try {
-            git -C $env:VCPKG_DIR fetch --depth 1 origin $sha
+            git -C $env:VCPKG_DIR fetch --depth 1 origin$sha
           } catch {
             throw "在 microsoft/vcpkg 中找不到提交 $sha。请把 vcpkg.json 的 builtin-baseline 改成真实存在的 vcpkg 提交。"
           }
