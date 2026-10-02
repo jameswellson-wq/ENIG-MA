@@ -12,7 +12,7 @@
 #   4. 依赖由 vcpkg.json（清单模式）声明  → 需要 /p:VcpkgEnableManifest=true
 #   5. 源码是无 BOM 的 UTF-8 且含中文；fmt 在 MSVC 下强制要求 /utf-8
 # ============================================================================
-name: Build EnigmaHardwareID
+name: Build EnigmaHardwareID 
 
 on:
   push:
